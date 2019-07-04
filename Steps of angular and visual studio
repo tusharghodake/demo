@@ -1,0 +1,259 @@
+You will see many articles on the internet about one field data filter which is filtering data based on your typed terms. In this tutorial, we are going to build something more advanced. It will be a multi-field data filter which will include simple inputs as well as selects. Let’s get started.
+
+1. Creating a New Project
+Let’s create a new project
+
+ng new angular-data-filters
+cd angular-data-filters
+We also need to install a Bootstrap.
+
+npm install bootstrap
+To make it work in an Angular project, we need to add:
+
+"node_modules/bootstrap/dist/css/bootstrap.min.css",
+inside the style section of the Angular.json file.
+
+2. Creating a Filter Pipe
+We need to create a filter pipe in the first place. The pipe is a simple way to transform values in an Angular template.
+
+ng generate pipe filter
+After adding a couple of lines, we get our pipe to look like this:
+
+import { Pipe, PipeTransform } from '@angular/core';
+@Pipe({
+	name: 'filter',
+})
+export class FilterPipe implements PipeTransform {
+	transform(items: any[], value: string, prop: string): any[] {
+		if (!items) return [];
+		if (!value) return items;
+		return items.filter(singleItem =>
+		singleItem[prop].toLowerCase().startsWith(value.toLowerCase())
+		);
+	}
+}
+It’s important to note that if all fields are empty the data should not be filtered.
+
+3. Creating a Search Component
+To get started, use the below command:
+
+ng generate component search
+Let’s create a simple form that will include inputs for the first name, last name, job title, gender, and age from and age to fields. The last two fields will be used to create an age range.
+
+export class SearchComponent implements OnInit {
+	form: FormGroup;
+	@Output() autoSearch: EventEmitter<string> = new EventEmitter<string>();
+	@Output() groupFilters: EventEmitter<any> = new EventEmitter<any>();
+	searchText: string = '';
+	constructor(private fb: FormBuilder,
+	private userService: UserService) {}
+	ngOnInit(): void {
+		this.buildForm();
+	}
+	buildForm(): void {
+		this.form = this.fb.group({
+			firstName: new FormControl(''),
+			lastName: new FormControl(''),
+			jobTitle: new FormControl(''),
+			gender: new FormControl(''),
+			agefrom: new FormControl(''),
+			ageto: new FormControl('')
+		});
+	}
+
+
+<form novalidate
+[formGroup]="form">
+<h3>Group Filter</h3>
+<div class="row">
+	<div class="col-md-3">
+		<input type="text"
+		formControlName="firstName"
+		class="form-control"
+		placeholder="First Name"
+		/>
+	</div>
+	<div class="col-md-3">
+		<input type="text"
+		formControlName="lastName"
+		class="form-control"
+		placeholder="Last Name"
+		/>
+	</div>
+	<div class="col-md-3">
+		<input type="text"
+		formControlName="Job Title"
+		class="form-control"
+		placeholder="Job Title"
+		/>
+	</div>
+	<div class="col-md-3 col-sm-3">
+		<select class="form-control"
+		formControlName="gender">
+			<option value="">Gender</option>
+			<option value="M">male</option>
+			<option value="F">female</option>
+		</select>
+	</div>
+	<div class="col-md-3">
+		<input type="text"
+		formControlName="agefrom"
+		class="form-control"
+		placeholder="age from"
+		/>
+	</div>
+	<div class="col-md-3">
+		<input type="text"
+		formControlName="ageto"
+		class="form-control"
+		placeholder="age to"
+		/>
+	</div>
+	<div class="col-md-3 col-sm-3">
+		<button class="btn btn-primary"
+		(click)="search(form.value)">Search</button>
+	</div>
+</div>
+You might notice from the above code that we didn’t use a template-driven form which is provided by Angular. In this tutorial, we used reactive forms. Now it’s time to add a code block for the search component in the TS file.
+
+The last part for this component is implementing the search function:
+
+search(filters: any): void {
+	Object.keys(filters).forEach(key => filters[key] === '' ? delete filters[key] : key);
+	this.groupFilters.emit(filters);
+}
+4. Building a User-List Component
+To begin, enter the following command: 
+
+ng generate component user-list
+We will do it in the same way as we did for the search component, but, before that, we need data which will be fetched and displayed on the page. We are going to use JSON data that will add in the separate file and fetch it via a user service that will create with the following command.
+
+ng generate service user
+Here is where Angular observables com ein to solve our problem.
+
+export class UserService {
+	setGroupFilter$ = new Subject<any>();
+	getGroupFilter = this.setGroupFilter$.asObservable();
+	constructor() {}
+	fetchUsers(): Observable<any> {
+		return of(USERS);
+	}
+}
+After making changes inside user service we can start working on the User-list component (UserListComponent). 
+
+export class UserListComponent implements OnChanges {
+	@Input() groupFilters: Object;
+	@Input() searchByKeyword: string;
+	users: any[] = [];
+	filteredUsers: any[] = [];
+	constructor(private userService: UserService,
+	private ref: ChangeDetectorRef) { }
+	ngOnInit(): void {
+		this.loadUsers();
+	}
+	ngOnChanges(): void {
+		if (this.groupFilters) this.filterUserList(this.groupFilters, this.users);
+	}
+	filterUserList(filters: any, users: any): void {
+		this.filteredUsers = this.users; 
+		const keys = Object.keys(filters);
+		const filterUser = user => {
+			let result = keys.map(key => {
+				if (!~key.indexOf('age')) {
+					if(user[key]) {
+						return String(user[key]).toLowerCase().startsWith(String(filters[key]).toLowerCase())
+					} else {
+						return false;
+					}
+				}
+			});
+			result = result.filter(it => it !== undefined);
+			if (filters['ageto'] && filters['agefrom']) {
+				if (user['age']) {
+					if (+user['age'] >= +filters['agefrom'] && +user['age'] <= +filters['ageto']) {
+						result.push(true);
+					} else {
+						result.push(false);
+					}
+					} else {
+						result.push(false);
+					}
+				}
+			return result.reduce((acc, cur: any) => { return acc & cur }, 1)
+		}
+		this.filteredUsers = this.users.filter(filterUser);
+		}
+		loadUsers(): void {
+			this.userService.fetchUsers()
+			.subscribe(users => this.users = users);
+			this.filteredUsers = this.filteredUsers.length > 0 ? this.filteredUsers : this.users;
+		}
+	}
+In the above code, we include event emitters in the search component and also get the data from the user service. Then we implement a user data filtering feature based on options like the age range or gender and by other filters as well. The most important thing is that you can type in both uppercase and lowercase and it will work in both cases. Sometimes you might notice issues connected with character type in the other examples. 
+
+So we need to create a simple HTML table for displaying the data.
+
+<table class="table table-responsive">
+	<tr>
+		<th>First Name</th>
+		<th>Last Name</th>
+		<th>Gender</th>
+		<th>Job Title</th>
+		<th>Age</th>
+	</tr>
+	<tbody>
+		<tr *ngFor="let user of filteredUsers | filter: searchByKeyword: 'name'">
+			<td>{{ user.firstName}}</td>
+			<td>{{ user.lastName}}</td>
+			<td>{{ user.gender}}</td>
+			<td>{{ user.jobTitle}}</td>
+			<td>{{ user.age}}</td>
+		</tr>
+	</tbody>
+</table>
+We have done a lot of work so far. Don’t worry, there's just a few steps left.
+
+5. Creating a User Component
+To start, use the below command:
+
+ng generate component user
+You might think, 'what’s the point of adding user components if there is already a user-list component included?'
+
+User components will be a container for our search and user-list components.
+
+<div class="container">
+<br/>
+<h1>List of Users</h1>
+<hr/>
+<app-search (groupFilters)="filters = $event"></app-search>
+<br/>
+<app-user-list [groupFilters]="filters"
+[searchByKeyword]="searchText"></app-user-list>
+</div>
+Also, don't forget about user-routing.module.ts and user.module.ts
+While it's a general Angular topic, you can choose your desired way to make the above components work together. However, for this tutorial, this approach was used:
+
+import { RouterModule, Routes } from '@angular/router';
+import { UserComponent } from './user.component';
+const routes: Routes = [
+  { path: '', component: UserComponent }
+];
+export const UserRoutes = RouterModule.forChild(routes);
+
+
+import { NgModule } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule, ReactiveFormsModule } from '@angular/forms';
+import { UserComponent } from './user.component';
+import { SearchComponent } from '../search/search.component';
+import { UserListComponent } from './user-list/user-list.component';
+import { UserService } from '../../services/user.service';
+import { FilterPipe } from '../../pipe/filter.pipe';
+import { UserRoutes } from './user-routing.module';
+@NgModule({
+  imports:      [ CommonModule, FormsModule, ReactiveFormsModule, UserRoutes ],
+  declarations: [ UserComponent, SearchComponent, UserListComponent, FilterPipe ],
+  providers: [ UserService ]
+})
+export class UserModule { }
+You can keep this two files inside the user folder. 
